@@ -1,0 +1,19 @@
+# 重要：パスワード情報を含むファイルを保護
+.env
+*/.env
+backend/.env
+
+# 依存関係フォルダ
+node_modules/
+*/node_modules/
+
+# ビルドファイル
+build/
+dist/
+
+# ログファイル
+*.log
+
+# OS固有ファイル
+.DS_Store
+Thumbs.db
