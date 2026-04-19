@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Building2, Mail, Lock, LogIn } from 'lucide-react';
 import axios from 'axios';
+import config from '../config';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -16,7 +17,7 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/auth/login`, {
+      const response = await axios.post(`${config.API_URL}/api/auth/login`, {
         email,
         password
       });
@@ -33,34 +34,37 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+    <div className="min-h-screen bg-slate-900 relative overflow-hidden flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-mesh-gradient opacity-20 pointer-events-none" />
+
+      <div className="glass-card w-full max-w-md p-8 relative z-10">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
-            <Building2 className="text-blue-600" size={32} />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-2xl mb-4 shadow-lg shadow-blue-500/30">
+            <Building2 className="text-white" size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">観察記録システム</h1>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">観察記録システム</h1>
           <p className="text-gray-500">ログインして記録を開始</p>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <div className="mb-6 p-4 bg-red-50/50 border border-red-200 rounded-xl text-red-600 text-sm flex items-center gap-2">
+            <div className="w-1 h-1 rounded-full bg-red-500" />
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               メールアドレス
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+              <Mail className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="glass-input w-full pl-11 pr-4 py-3 text-gray-800 placeholder-gray-400"
                 placeholder="example@company.com"
                 required
               />
@@ -68,16 +72,16 @@ const LoginPage = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               パスワード
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+              <Lock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="glass-input w-full pl-11 pr-4 py-3 text-gray-800 placeholder-gray-400"
                 placeholder="••••••••"
                 required
               />
@@ -87,20 +91,20 @@ const LoginPage = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3.5 rounded-xl font-bold hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <LogIn size={20} />
             {loading ? 'ログイン中...' : 'ログイン'}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600 mb-2">
+        <div className="mt-8 text-center pt-6 border-t border-gray-100">
+          <p className="text-sm text-gray-500 mb-3">
             アカウントをお持ちでない方
           </p>
           <Link
             to="/register"
-            className="inline-block w-full bg-white text-blue-600 border-2 border-blue-600 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors"
+            className="inline-block w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
           >
             新規アカウント登録
           </Link>
