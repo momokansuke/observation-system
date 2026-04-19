@@ -11,8 +11,19 @@ const PORT = process.env.PORT || 5000;
 // ========================================
 // ミドルウェア設定
 // ========================================
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(',')
+  .map(o => o.trim());
+
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // allow requests with no origin (e.g., curl, mobile apps, Electron)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('CORS policy violation'));
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -21,17 +32,58 @@ app.use(express.json());
 // データベース接続設定
 // ========================================
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require')
+    ? { rejectUnauthorized: false }
+    : (process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false),
 });
 
-// データベース接続確認
 pool.on('error', (err) => {
   console.error('❌ データベース接続エラー:', err);
 });
+
+// テーブル初期化
+async function initDB() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        company_name TEXT,
+        role TEXT DEFAULT 'user',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subordinates (
+        id SERIAL PRIMARY KEY,
+        manager_id INTEGER NOT NULL REFERENCES users(id),
+        name TEXT NOT NULL,
+        department TEXT,
+        position TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS observations (
+        id SERIAL PRIMARY KEY,
+        subordinate_id INTEGER NOT NULL REFERENCES subordinates(id),
+        observation_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        behavior TEXT NOT NULL,
+        situation TEXT,
+        impact TEXT,
+        category TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ データベーステーブル初期化完了');
+  } finally {
+    client.release();
+  }
+}
 
 // ========================================
 // 認証ミドルウェア
@@ -57,10 +109,7 @@ const authenticateToken = (req, res, next) => {
 // 認証API
 // ========================================
 
-// ログイン
-app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-// ユーザー登録API
+// ユーザー登録
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, password, company_name } = req.body;
 
@@ -85,18 +134,14 @@ app.post('/api/auth/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      'INSERT INTO users (name, email, password_hash, company_name, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id, name, email, company_name',
+      'INSERT INTO users (name, email, password_hash, company_name) VALUES ($1, $2, $3, $4) RETURNING id, name, email, company_name, role',
       [name, email, passwordHash, company_name || null]
     );
 
     const newUser = result.rows[0];
 
     const token = jwt.sign(
-      { 
-        userId: newUser.id,
-        email: newUser.email,
-        name: newUser.name
-      },
+      { userId: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -109,7 +154,8 @@ app.post('/api/auth/register', async (req, res) => {
         id: newUser.id,
         email: newUser.email,
         name: newUser.name,
-        company_name: newUser.company_name
+        company_name: newUser.company_name,
+        role: newUser.role,
       }
     });
   } catch (error) {
@@ -118,9 +164,17 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// ログイン
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'メールアドレスとパスワードは必須です' });
+  }
+
   try {
     const result = await pool.query(
-      'SELECT id, email, name, password_hash FROM users WHERE email = $1',
+      'SELECT id, email, name, password_hash, company_name, role FROM users WHERE email = $1',
       [email]
     );
 
@@ -130,17 +184,13 @@ app.post('/api/auth/register', async (req, res) => {
 
     const user = result.rows[0];
     const validPassword = await bcrypt.compare(password, user.password_hash);
-    
+
     if (!validPassword) {
       return res.status(401).json({ error: 'メールアドレスまたはパスワードが正しくありません' });
     }
 
     const token = jwt.sign(
-      { 
-        userId: user.id,
-        email: user.email,
-        name: user.name
-      },
+      { userId: user.id, email: user.email, name: user.name, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -150,73 +200,13 @@ app.post('/api/auth/register', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        name: user.name
+        name: user.name,
+        company_name: user.company_name,
+        role: user.role,
       }
     });
   } catch (error) {
     console.error('❌ ログインエラー:', error);
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
-  }
-});
-// ユーザー登録API
-app.post('/api/auth/register', async (req, res) => {
-  const { name, email, password, company_name } = req.body;
-
-  // 入力検証
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: '氏名、メールアドレス、パスワードは必須です' });
-  }
-
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'パスワードは6文字以上で設定してください' });
-  }
-
-  try {
-    // メールアドレスの重複チェック
-    const existingUser = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email]
-    );
-
-    if (existingUser.rows.length > 0) {
-      return res.status(409).json({ error: 'このメールアドレスは既に登録されています' });
-    }
-
-    // パスワードのハッシュ化（現在のシステムに完全対応）
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // 新規ユーザー作成
-    const result = await pool.query(
-      'INSERT INTO users (name, email, password_hash, company_name, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id, name, email, company_name',
-      [name, email, passwordHash, company_name || null]
-    );
-
-    const newUser = result.rows[0];
-
-    // JWTトークン生成（自動ログイン）
-    const token = jwt.sign(
-      { 
-        userId: newUser.id,
-        email: newUser.email,
-        name: newUser.name
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    console.log(`✅ 新規ユーザー登録成功: ${newUser.email}`);
-
-    res.status(201).json({
-      token,
-      user: {
-        id: newUser.id,
-        email: newUser.email,
-        name: newUser.name,
-        company_name: newUser.company_name
-      }
-    });
-  } catch (error) {
-    console.error('❌ ユーザー登録エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
   }
 });
@@ -225,7 +215,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, name FROM users WHERE id = $1',
+      'SELECT id, email, name, company_name, role FROM users WHERE id = $1',
       [req.user.userId]
     );
 
@@ -261,7 +251,7 @@ app.get('/api/subordinates', authenticateToken, async (req, res) => {
 // 部下追加
 app.post('/api/subordinates', authenticateToken, async (req, res) => {
   const { name, department, position } = req.body;
-  
+
   if (!name) {
     return res.status(400).json({ error: '氏名は必須です' });
   }
@@ -278,6 +268,23 @@ app.post('/api/subordinates', authenticateToken, async (req, res) => {
   }
 });
 
+// 部下削除
+app.delete('/api/subordinates/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM subordinates WHERE id = $1 AND manager_id = $2 RETURNING id',
+      [req.params.id, req.user.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: '部下が見つかりません' });
+    }
+    res.json({ message: '削除しました' });
+  } catch (error) {
+    console.error('❌ 部下削除エラー:', error);
+    res.status(500).json({ error: 'データ削除エラーが発生しました' });
+  }
+});
+
 // ========================================
 // 観察記録API
 // ========================================
@@ -286,7 +293,7 @@ app.post('/api/subordinates', authenticateToken, async (req, res) => {
 app.get('/api/observations', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT o.*, s.name as subordinate_name, s.department, s.position 
+      `SELECT o.*, s.name as subordinate_name, s.department, s.position
        FROM observations o
        JOIN subordinates s ON o.subordinate_id = s.id
        WHERE s.manager_id = $1
@@ -320,7 +327,7 @@ app.post('/api/observations', authenticateToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO observations 
+      `INSERT INTO observations
        (subordinate_id, observation_date, behavior, situation, impact, category)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
@@ -330,7 +337,7 @@ app.post('/api/observations', authenticateToken, async (req, res) => {
         behavior,
         situation || null,
         impact || null,
-        category || null
+        category || null,
       ]
     );
 
@@ -338,6 +345,26 @@ app.post('/api/observations', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('❌ 観察記録追加エラー:', error);
     res.status(500).json({ error: 'データ保存エラーが発生しました' });
+  }
+});
+
+// 観察記録削除
+app.delete('/api/observations/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `DELETE FROM observations o
+       USING subordinates s
+       WHERE o.id = $1 AND o.subordinate_id = s.id AND s.manager_id = $2
+       RETURNING o.id`,
+      [req.params.id, req.user.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: '記録が見つかりません' });
+    }
+    res.json({ message: '削除しました' });
+  } catch (error) {
+    console.error('❌ 観察記録削除エラー:', error);
+    res.status(500).json({ error: 'データ削除エラーが発生しました' });
   }
 });
 
@@ -351,7 +378,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       pool.query(
         `SELECT COUNT(*) FROM observations o
          JOIN subordinates s ON o.subordinate_id = s.id
-         WHERE s.manager_id = $1 
+         WHERE s.manager_id = $1
          AND o.observation_date >= DATE_TRUNC('week', CURRENT_DATE)`,
         [req.user.userId]
       ),
@@ -360,13 +387,13 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
          JOIN subordinates s ON o.subordinate_id = s.id
          WHERE s.manager_id = $1`,
         [req.user.userId]
-      )
+      ),
     ]);
 
     res.json({
       totalSubordinates: parseInt(subordinatesResult.rows[0].count),
       thisWeekObservations: parseInt(thisWeekResult.rows[0].count),
-      totalObservations: parseInt(totalObservationsResult.rows[0].count)
+      totalObservations: parseInt(totalObservationsResult.rows[0].count),
     });
   } catch (error) {
     console.error('❌ 統計取得エラー:', error);
@@ -378,23 +405,16 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
 // サーバー起動
 // ========================================
 const startServer = async () => {
-  console.log('🚀 ========================================');
-  console.log('   観察記録システム サーバー起動');
-  console.log('   ========================================');
-  console.log(`   ポート: ${PORT}`);
-  console.log(`   URL: http://localhost:${PORT}`);
-  console.log('   ========================================');
-
+  console.log('🚀 観察記録システム サーバー起動中...');
   try {
-    const client = await pool.connect();
-    console.log(`✅ データベース接続成功: ${new Date().toISOString()}`);
-    client.release();
+    await initDB();
   } catch (err) {
-    console.error('❌ データベース接続失敗:', err);
+    console.error('❌ データベース初期化失敗:', err);
+    process.exit(1);
   }
 
   app.listen(PORT, () => {
-    console.log(`🌐 サーバーがポート ${PORT} で待機中...`);
+    console.log(`🌐 サーバーがポート ${PORT} で待機中: http://localhost:${PORT}`);
   });
 };
 

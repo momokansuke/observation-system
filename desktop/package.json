@@ -1,0 +1,45 @@
+{
+  "name": "observation-system-desktop",
+  "version": "1.0.0",
+  "description": "観察記録システム デスクトップアプリ",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.observation-system.app",
+    "productName": "観察記録システム",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": ["ja-JP"],
+      "language": "1041"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.icns"
+    }
+  }
+}

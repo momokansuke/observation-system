@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: `${API_BASE_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -21,15 +21,23 @@ apiClient.interceptors.request.use(
 export const authAPI = {
   login: (email, password) => apiClient.post('/auth/login', { email, password }),
   register: (userData) => apiClient.post('/auth/register', userData),
-};
-
-export const observationAPI = {
-  create: (data) => apiClient.post('/observations', data),
-  getAll: (params) => apiClient.get('/observations', { params }),
+  me: () => apiClient.get('/auth/me'),
 };
 
 export const subordinateAPI = {
   getAll: () => apiClient.get('/subordinates'),
+  create: (data) => apiClient.post('/subordinates', data),
+  delete: (id) => apiClient.delete(`/subordinates/${id}`),
+};
+
+export const observationAPI = {
+  getAll: () => apiClient.get('/observations'),
+  create: (data) => apiClient.post('/observations', data),
+  delete: (id) => apiClient.delete(`/observations/${id}`),
+};
+
+export const dashboardAPI = {
+  getStats: () => apiClient.get('/dashboard/stats'),
 };
 
 export default apiClient;
